@@ -19,7 +19,7 @@ func GetDotEnv(key string) []byte {
 	return value
 }
 
-func GetNumDotEnv(key string) int {
+func GetIntDotEnv(key string) int {
 	env, err := strconv.Atoi(string(GetDotEnv(key)))
 	if err != nil {
 		panic("Invalid ACCESS_TOKEN_SESSION_MINUTES value")

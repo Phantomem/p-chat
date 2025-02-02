@@ -61,7 +61,7 @@ func GenerateToken(userID string, expires time.Time) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(expires),
 		},
 	}
-
+	fmt.Println(lib.GetDotEnv("JWT_SECRET"))
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(lib.GetDotEnv("JWT_SECRET"))
 }
@@ -96,15 +96,18 @@ func AuthorizeHandler(c *gin.Context) {
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
-
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		panic("Failed to hash password")
+	}
 	user, exists := users[req.Email]
-	if !exists || user.PasswordHash != req.Password {
+	if !exists || user.Password != string(hashedPassword) {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
 
-	accessTokenSessionTime := lib.GetNumDotEnv("ACCESS_TOKEN_SESSION_MINUTES")
-	refreshTokenSessionTime := lib.GetNumDotEnv("REFRESH_TOKEN_SESSION_HOURS")
+	accessTokenSessionTime := lib.GetIntDotEnv("ACCESS_TOKEN_SESSION_MINUTES")
+	refreshTokenSessionTime := lib.GetIntDotEnv("REFRESH_TOKEN_SESSION_HOURS")
 	accessToken, _ := GenerateToken(user.ID, time.Now().Add(time.Duration(accessTokenSessionTime)*time.Minute))
 	refreshToken, _ := GenerateToken(user.ID, time.Now().Add(time.Duration(refreshTokenSessionTime)*time.Hour))
 
@@ -139,12 +142,12 @@ func SessionHandler(c *gin.Context) {
 }
 
 func EmailVerifyHandler(c *gin.Context) {
-	verifyToken := c.Param("verifyToken")
+	//verifyToken := c.Param("verifyToken")
 	// TODO check if verifyToken is correct and get user by it
 	// TODO set up user as verified
 	user := User{}
-	accessTokenSessionTime := time.Now().Add(time.Duration(lib.GetNumDotEnv("ACCESS_TOKEN_SESSION_MINUTES")) * time.Minute)
-	refreshTokenSessionTime := time.Now().Add(time.Duration(lib.GetNumDotEnv("REFRESH_TOKEN_SESSION_HOURS")) * time.Hour)
+	accessTokenSessionTime := time.Now().Add(time.Duration(lib.GetIntDotEnv("ACCESS_TOKEN_SESSION_MINUTES")) * time.Minute)
+	refreshTokenSessionTime := time.Now().Add(time.Duration(lib.GetIntDotEnv("REFRESH_TOKEN_SESSION_HOURS")) * time.Hour)
 	accessToken, _ := GenerateToken(user.ID, accessTokenSessionTime)
 	refreshToken, _ := GenerateToken(user.ID, refreshTokenSessionTime)
 

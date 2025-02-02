@@ -1,7 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"github.com/joho/godotenv"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"main/lib"
 	"main/session"
 	"net/http"
 	"time"
@@ -12,6 +16,17 @@ import (
 func main() {
 	r := gin.Default()
 	err := godotenv.Load()
+
+	dbHost := lib.GetDotEnv("PSQL_HOST")
+	dbUser := lib.GetDotEnv("PSQL_USER")
+	dbPassword := lib.GetDotEnv("PSQL_PASSWORD")
+	dbName := lib.GetDotEnv("PSQL_DB")
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=5432 TimeZone=Europe/Warsaw", dbHost, dbUser, dbPassword, dbName)
+	_, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		panic("failed to connect database")
+	}
+
 	if err != nil {
 		panic("Error loading .env file")
 	}
