@@ -136,7 +136,7 @@ func AuthorizeHandler(c *gin.Context) {
 		"data": gin.H{
 			"access_token":           accessToken,
 			"refresh_token":          refreshToken,
-			"token_valid_to":         accessTokenSessionTime,
+			"access_token_valid_to":  accessTokenSessionTime,
 			"refresh_token_valid_to": refreshTokenSessionTime,
 		},
 	})
