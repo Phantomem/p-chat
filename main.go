@@ -46,7 +46,7 @@ func main() {
 		chat.DELETE("/chat/group/:id/join", leaveGroupHandler)
 	}
 
-	err = r.Run(":80")
+	err = r.Run(":8080")
 	if err != nil {
 		panic(err)
 	}
