@@ -2,7 +2,7 @@ package entity
 
 type UserSession struct {
 	UserID       string `gorm:"type:uuid;primary_key"`
-	Token        string `gorm:"type:text;not null"`
+	AccessToken  string `gorm:"type:text;not null"`
 	RefreshToken string `gorm:"type:text;not null"`
 }
 

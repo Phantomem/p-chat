@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"main/lib"
+	"main/state"
+	"main/state/entity"
 	"net/http"
 	"time"
 )
@@ -16,22 +18,12 @@ type TokenType string
 const TokenTypeAuth TokenType = "AUTH"
 const TokenTypeRefresh TokenType = "REFRESH"
 
-type User struct {
-	ID                string
-	Email             string
-	Password          string
-	Verified          bool
-	VerificationToken string
-	CreatedAt         time.Time
-}
-
 type RefreshToken struct {
 	Token     string
 	UserID    string
 	ExpiresAt time.Time
 }
 
-var users = make(map[string]*User)
 var refreshTokens = make(map[string]*RefreshToken)
 
 type Claims struct {
@@ -68,16 +60,31 @@ func GenerateToken(userID string, expires time.Time) (string, error) {
 
 func AuthMiddleware(strict bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tokenString := c.GetHeader("token")
-		if tokenString == "" {
+		accessToken := c.GetHeader("access_token")
+		refreshToken := c.GetHeader("refresh_token")
+		if accessToken == "" {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
 
-		claims, err := ParseToken(tokenString)
+		claims, err := ParseToken(accessToken)
 		if err != nil || (strict && time.Now().After(claims.ExpiresAt)) {
-			// TODO use refresh token to generate new access token instead
-			c.AbortWithStatus(http.StatusUnauthorized)
+			refreshClaims, err := ParseToken(refreshToken)
+			if err != nil || (time.Now().After(refreshClaims.ExpiresAt)) {
+				c.AbortWithStatus(http.StatusUnauthorized)
+			}
+
+			accessTokenSessionTime := time.Now().Add(time.Duration(lib.GetIntDotEnv("ACCESS_TOKEN_SESSION_MINUTES")) * time.Minute)
+			refreshTokenSessionTime := time.Now().Add(time.Duration(lib.GetIntDotEnv("REFRESH_TOKEN_SESSION_HOURS")) * time.Hour)
+			newAccessToken, _ := GenerateToken(claims.UserID, accessTokenSessionTime)
+			newRefreshToken, _ := GenerateToken(claims.UserID, refreshTokenSessionTime)
+
+			err = state.Update(state.GetConnection(), &entity.UserSession{UserID: claims.UserID, AccessToken: newAccessToken, RefreshToken: newRefreshToken})
+
+			c.Header("access_token", newAccessToken)
+			c.Header("refresh_token", newRefreshToken)
+			c.Header("access_token_valid_to", accessTokenSessionTime.String())
+			c.Header("refresh_token_valid_to", refreshTokenSessionTime.String())
 			return
 		}
 
@@ -96,28 +103,41 @@ func AuthorizeHandler(c *gin.Context) {
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	//hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	var user = entity.User{}
+	err := state.GetByKeyVal[entity.User, string](state.GetConnection(), "email", req.Email, &user)
 	if err != nil {
-		panic("Failed to hash password")
+		c.AbortWithStatus(http.StatusBadRequest)
 	}
-	user, exists := users[req.Email]
-	if !exists || user.Password != string(hashedPassword) {
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
+
+	if user.Verified != true || user.Password == "" || err != nil {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
 
-	accessTokenSessionTime := lib.GetIntDotEnv("ACCESS_TOKEN_SESSION_MINUTES")
-	refreshTokenSessionTime := lib.GetIntDotEnv("REFRESH_TOKEN_SESSION_HOURS")
-	accessToken, _ := GenerateToken(user.ID, time.Now().Add(time.Duration(accessTokenSessionTime)*time.Minute))
-	refreshToken, _ := GenerateToken(user.ID, time.Now().Add(time.Duration(refreshTokenSessionTime)*time.Hour))
+	accessTokenSessionTime := time.Now().Add(time.Duration(lib.GetIntDotEnv("ACCESS_TOKEN_SESSION_MINUTES")) * time.Minute)
+	refreshTokenSessionTime := time.Now().Add(time.Duration(lib.GetIntDotEnv("REFRESH_TOKEN_SESSION_HOURS")) * time.Hour)
+	accessToken, _ := GenerateToken(user.ID, accessTokenSessionTime)
+	refreshToken, _ := GenerateToken(user.ID, refreshTokenSessionTime)
+
+	err = state.Update(state.GetConnection(), &entity.UserSession{UserID: user.ID, AccessToken: accessToken, RefreshToken: refreshToken})
+
+	c.Header("access_token", accessToken)
+	c.Header("refresh_token", refreshToken)
+	c.Header("access_token_valid_to", accessTokenSessionTime.String())
+	c.Header("refresh_token_valid_to", refreshTokenSessionTime.String())
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status": "Success",
 		"data": gin.H{
-			"token":                  accessToken,
+			"access_token":           accessToken,
 			"refresh_token":          refreshToken,
-			"token_valid_to":         time.Now().Add(15 * time.Minute).Format(time.RFC3339),
-			"refresh_token_valid_to": time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+			"token_valid_to":         accessTokenSessionTime,
+			"refresh_token_valid_to": refreshTokenSessionTime,
 		},
 	})
 }
@@ -142,14 +162,37 @@ func SessionHandler(c *gin.Context) {
 }
 
 func EmailVerifyHandler(c *gin.Context) {
-	//verifyToken := c.Param("verifyToken")
-	// TODO check if verifyToken is correct and get user by it
-	// TODO set up user as verified
-	user := User{}
+	verifyToken := c.Query("verifyToken")
+	fmt.Println(verifyToken)
+	var user = entity.User{}
+	err := state.GetByKeyVal[entity.User, string](state.GetConnection(), "verification_token", verifyToken, &user)
+	if err != nil {
+		fmt.Println(1)
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	user.Verified = true
+	err = state.Update[entity.User](state.GetConnection(), &user)
+	if err != nil {
+		fmt.Println(2)
+
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
 	accessTokenSessionTime := time.Now().Add(time.Duration(lib.GetIntDotEnv("ACCESS_TOKEN_SESSION_MINUTES")) * time.Minute)
 	refreshTokenSessionTime := time.Now().Add(time.Duration(lib.GetIntDotEnv("REFRESH_TOKEN_SESSION_HOURS")) * time.Hour)
 	accessToken, _ := GenerateToken(user.ID, accessTokenSessionTime)
 	refreshToken, _ := GenerateToken(user.ID, refreshTokenSessionTime)
+
+	err = state.Create(state.GetConnection(), &entity.UserSession{UserID: user.ID, AccessToken: accessToken, RefreshToken: refreshToken})
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+	}
+
+	c.Header("access_token", accessToken)
+	c.Header("refresh_token", refreshToken)
+	c.Header("access_token_valid_to", accessTokenSessionTime.String())
+	c.Header("refresh_token_valid_to", refreshTokenSessionTime.String())
 
 	c.JSON(http.StatusOK, gin.H{
 		"status": "Success",
@@ -176,14 +219,19 @@ func RegisterHandler(c *gin.Context) {
 	if err != nil {
 		panic("Failed to hash password")
 	}
-	user, exists := users[req.Email]
-	if !exists || user.Password != string(hashedPassword) {
-		c.AbortWithStatus(http.StatusUnauthorized)
+	var user = entity.User{}
+	_ = state.GetByKeyVal[entity.User, string](state.GetConnection(), "email", req.Email, &user)
+	if user.ID != "" {
+		c.JSON(http.StatusNotImplemented, gin.H{
+			"status":  "Error",
+			"message": "Failed to register user",
+		})
 		return
 	}
+
 	verificationToken := uuid.New().String()
 
-	user = &User{
+	user = entity.User{
 		ID:                uuid.New().String(),
 		Email:             req.Email,
 		Password:          string(hashedPassword),
@@ -191,7 +239,14 @@ func RegisterHandler(c *gin.Context) {
 		VerificationToken: verificationToken,
 		CreatedAt:         time.Now(),
 	}
-	// TODO add user to database
+	err = state.Create[entity.User](state.GetConnection(), &user)
+	if err != nil {
+		c.JSON(http.StatusNotImplemented, gin.H{
+			"status":  "Error",
+			"message": "Failed to register user",
+		})
+		return
+	}
 	// TODO send verification email
 	c.JSON(http.StatusOK, gin.H{
 		"status": "Success",
