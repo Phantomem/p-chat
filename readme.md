@@ -40,19 +40,16 @@ Logs in a user and returns a session token.
 
 #### Returns: 
 
-```json
-status 200:
+```
 {
-    status: 'Success', // or 'Error'
+    status: "Success",
     data: {
-        access_token: 'complex token',
-        refresh_token: 'complex token'
-        access_token_valid_to: 'date time (ISO)',
-        refresh_token_valid_to: 'date time (ISO)',
-    },
+        access_token: "complex token",
+        refresh_token: "complex token",
+        access_token_valid_to: "date time (ISO)",
+        refresh_token_valid_to: "date time (ISO)"
+    }
 }
-status 401:
-{}
 ```
 
 ### 2. POST /session/register
@@ -68,17 +65,14 @@ Refreshes a session token.
 
 #### Returns: 
 
-```json
-status 200:
+```
 {
-    status: 'Success', // or 'Error'
+    status: "Success",
     data: {
-        VerificationToken: 'complex token',
-        message: 'User registered successfully',
-    },
+        VerificationToken: "complex token",
+        message: "User registered successfully"
+    }
 }
-status 401:
-{}
 ```
 
 ### 3. GET /session/emailVerify?verifyToken='complex token'
@@ -87,19 +81,16 @@ Verifies a user's email address.
 
 #### Returns: 
 
-```json
-status 200:
+```
 {
-  status: 'Success', // or 'Error'
+  status: "Success",
   data: {
-    access_token: 'complex token',
-    refresh_token: 'complex token'
-    access_token_valid_to: 'date time (ISO)',
-    refresh_token_valid_to: 'date time (ISO)',
-  },
+    access_token: "complex token",
+    refresh_token: "complex token",
+    access_token_valid_to: "date time (ISO)",
+    refresh_token_valid_to: "date time (ISO)"
+  }
 }
-status 401:
-{}
 ```
 
 ## Database Schema
