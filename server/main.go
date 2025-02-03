@@ -2,16 +2,19 @@ package main
 
 import (
 	"fmt"
+	"main/chat"
+	"main/lib"
+	"main/session"
+	"main/state"
+	"main/state/entity"
+	"net/http"
+	"time"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"main/lib"
-	"main/session"
-	"net/http"
-	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,8 +25,6 @@ var (
 			return true // Adjust this in production
 		},
 	}
-	clients      = make(map[*websocket.Conn]string)
-	clientsMutex sync.Mutex
 )
 
 func main() {
@@ -63,6 +64,7 @@ func main() {
 		chat.GET("/chat/messages", messagesHandler)
 		chat.PUT("/chat/group/:id/join", joinGroupHandler)
 		chat.DELETE("/chat/group/:id/join", leaveGroupHandler)
+		chat.GET("/chat/:id/open", wsUpgradeHandler)
 	}
 
 	err = r.Run(":8080")
@@ -85,3 +87,23 @@ func statusHandler(c *gin.Context) {
 func messagesHandler(c *gin.Context)   { /* ... */ }
 func joinGroupHandler(c *gin.Context)  { /* ... */ }
 func leaveGroupHandler(c *gin.Context) { /* ... */ }
+
+func wsUpgradeHandler(c *gin.Context) {
+	accessToken := c.GetHeader("access_token")
+	chatRoomId := c.Param("id")
+	var userSession entity.UserSession
+	err := state.GetByKeyVal[entity.UserSession, string](state.GetConnection(), "access_token", accessToken, &userSession)
+	var chatRoom entity.ChatRoom
+	err = state.GetByID[entity.ChatRoom](state.GetConnection(), chatRoomId, &chatRoom)
+	connectionString, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+	}
+	chat.AssignConnection(chatRoom, connectionString, userSession.UserID)
+	defer func() error {
+		chat.CloseConnection(chatRoom, userSession.UserID)
+		connectionString.Close()
+		return nil
+	}()
+
+}
