@@ -167,7 +167,10 @@ func EmailVerifyHandler(c *gin.Context) {
 	var user = entity.User{}
 	err := state.GetByKeyVal[entity.User, string](state.GetConnection(), "verification_token", verifyToken, &user)
 	if err != nil {
-		fmt.Println(1)
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	if user.Verified == true {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
@@ -187,6 +190,7 @@ func EmailVerifyHandler(c *gin.Context) {
 	err = state.Create(state.GetConnection(), &entity.UserSession{UserID: user.ID, AccessToken: accessToken, RefreshToken: refreshToken})
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
+		return
 	}
 
 	c.Header("access_token", accessToken)
