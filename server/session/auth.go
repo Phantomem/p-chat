@@ -107,7 +107,7 @@ func AuthorizeHandler(c *gin.Context) {
 	var user = entity.User{}
 	err := state.GetByKeyVal[entity.User, string](state.GetConnection(), "email", req.Email, &user)
 	if err != nil {
-		c.AbortWithStatus(http.StatusBadRequest)
+		c.AbortWithStatus(http.StatusUnauthorized)
 	}
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
 
