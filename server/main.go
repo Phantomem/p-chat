@@ -2,20 +2,39 @@ package main
 
 import (
 	"fmt"
+	"github.com/gin-contrib/cors"
+	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"main/lib"
 	"main/session"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
+var (
+	upgrader = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Adjust this in production
+		},
+	}
+	clients      = make(map[*websocket.Conn]string)
+	clientsMutex sync.Mutex
+)
+
 func main() {
 	r := gin.Default()
 	err := godotenv.Load()
+
+	r.Use(cors.New(cors.Config{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+	}))
 
 	dbHost := lib.GetDotEnv("PSQL_HOST")
 	dbUser := lib.GetDotEnv("PSQL_USER")

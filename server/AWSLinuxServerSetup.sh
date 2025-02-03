@@ -6,7 +6,7 @@ cd /home/ec2-user/
 && go version
 && cd /home/ec2-user/
 && git clone https://github.com/Phantomem/p-chat.git
-&& cd p-chat
+&& cd p-chat/server/
 && go get
 && go build main.go
 && ./main
