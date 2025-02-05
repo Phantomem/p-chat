@@ -1,8 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
-	"fmt"
 	chat "main/chat/types"
 	"main/state/entity"
 
@@ -17,6 +15,6 @@ func AssignConnection(chatRoom entity.ChatRoom, connectionString *websocket.Conn
 }
 
 func CloseConnection(chatRoom entity.ChatRoom, userID string) error {
-	savedChatRoom := wsConnectionsMap[chatRoom.ID][userID] = ""
+	wsConnectionsMap[chatRoom.ID][userID] = nil
 	return nil
 }

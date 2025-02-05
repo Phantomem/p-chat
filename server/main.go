@@ -58,13 +58,13 @@ func main() {
 	r.GET("/session/emailVerify", session.EmailVerifyHandler)
 	r.Use(session.AuthMiddleware(false)).GET("/session", session.SessionHandler)
 	// chat endpoints
-	chat := r.Group("/")
-	chat.Use(session.AuthMiddleware(false))
+	authenticated := r.Group("/")
+	authenticated.Use(session.AuthMiddleware(false))
 	{
-		chat.GET("/chat/messages", messagesHandler)
-		chat.PUT("/chat/group/:id/join", joinGroupHandler)
-		chat.DELETE("/chat/group/:id/join", leaveGroupHandler)
-		chat.GET("/chat/:id/open", wsUpgradeHandler)
+		authenticated.GET("/chat/messages", messagesHandler)
+		authenticated.PUT("/chat/group/:id/join", joinGroupHandler)
+		authenticated.DELETE("/chat/group/:id/join", leaveGroupHandler)
+		authenticated.GET("/chat/:id/open", wsUpgradeHandler)
 	}
 
 	err = r.Run(":8080")
@@ -99,11 +99,28 @@ func wsUpgradeHandler(c *gin.Context) {
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}
-	chat.AssignConnection(chatRoom, connectionString, userSession.UserID)
+	_ = chat.AssignConnection(chatRoom, connectionString, userSession.UserID)
 	defer func() error {
-		chat.CloseConnection(chatRoom, userSession.UserID)
-		connectionString.Close()
+		_ = chat.CloseConnection(chatRoom, userSession.UserID)
+		_ = connectionString.Close()
 		return nil
 	}()
 
+	for {
+		_, bytes, err := connectionString.ReadMessage()
+		if err != nil {
+			break
+		}
+
+	}
+}
+
+func wsConnectionController(connectionString *websocket.Conn) error {
+	for {
+		_, bytes, err := connectionString.ReadMessage()
+		if err != nil {
+			break
+		}
+
+	}
 }
