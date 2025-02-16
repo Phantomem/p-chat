@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  server:
+    build: .
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      - MONITOR_URLS=http://localhost:8080/status
+      - PING_HOSTS=127.0.0.1
+    deploy:
+      resources:
+        limits:
+          cpus: '2.00'       # Maximum 2 CPU cores
+          memory: 2G         # Hard memory limit
+        reservations:
+          cpus: '0.5'        # Guaranteed minimum CPU
+          memory: 512M       # Guaranteed minimum memory
+    volumes:
+      - ./data:/app/data     # Mount data directory for disk monitoring
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:8080/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  monitor:
+    image: google/cadvisor:latest
+    ports:
+      - "8081:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    depends_on:
+      - server
