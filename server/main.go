@@ -5,8 +5,6 @@ import (
 	"main/chat"
 	"main/lib"
 	"main/session"
-	"main/state"
-	"main/state/entity"
 	"net/http"
 	"time"
 
@@ -28,8 +26,14 @@ var (
 )
 
 func main() {
-	r := gin.Default()
+	r := gin.New()
+
+	// Add only the Recovery middleware (to handle panics gracefully)
+	r.Use(gin.Recovery())
 	err := godotenv.Load()
+
+	lib.InitConfiguration()
+	lib.InitMonitor()
 
 	r.Use(cors.New(cors.Config{
 		AllowOrigins: []string{"*"},
@@ -47,11 +51,13 @@ func main() {
 		panic("failed to connect database")
 	}
 
-	if err != nil {
-		panic("Error loading .env file")
-	}
+	lib.GetConfig().WP = lib.NewWorkerPool(lib.WorkerPoolConfig{WorkerFn: chat.ChatHandler, NumWorkers: 100000})
+	lib.GetConfig().WP.ScaleUp(100)
+	defer lib.GetConfig().WP.Shutdown()
+	go lib.CollectWorkerPoolMetrics(lib.GetConfig().WP)
 	// Public endpoints
 	r.GET("/status", statusHandler)
+	go r.GET("/ws-upgrade", wsUpgradeHandler)
 	// Register session endpoints
 	r.POST("/session/authorize", session.AuthorizeHandler)
 	r.POST("/session/register", session.RegisterHandler)
@@ -61,10 +67,11 @@ func main() {
 	authenticated := r.Group("/")
 	authenticated.Use(session.AuthMiddleware(false))
 	{
+		//go authenticated.GET("/ws-upgrade", wsUpgradeHandler)
+
 		authenticated.GET("/chat/messages", messagesHandler)
 		authenticated.PUT("/chat/group/:id/join", joinGroupHandler)
 		authenticated.DELETE("/chat/group/:id/join", leaveGroupHandler)
-		authenticated.GET("/chat/:id/open", wsUpgradeHandler)
 	}
 
 	err = r.Run(":8080")
@@ -74,6 +81,7 @@ func main() {
 }
 
 func statusHandler(c *gin.Context) {
+	//lib.GetConfig().WP.EnqueueTask(lib.Task[map[string]any]{Data: map[string]any{"message": "Hello, World!"}})
 	c.JSON(http.StatusOK, gin.H{
 		"status": "Success",
 		"data": gin.H{
@@ -89,38 +97,29 @@ func joinGroupHandler(c *gin.Context)  { /* ... */ }
 func leaveGroupHandler(c *gin.Context) { /* ... */ }
 
 func wsUpgradeHandler(c *gin.Context) {
-	accessToken := c.GetHeader("access_token")
-	chatRoomId := c.Param("id")
-	var userSession entity.UserSession
-	err := state.GetByKeyVal[entity.UserSession, string](state.GetConnection(), "access_token", accessToken, &userSession)
-	var chatRoom entity.ChatRoom
-	err = state.GetByID[entity.ChatRoom](state.GetConnection(), chatRoomId, &chatRoom)
+	//accessToken := c.GetHeader("access_token")
+	//accessToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNzZlMGRlZWUtMTI4Yy00ZDdlLWFlMTAtYzJkN2RkMmZlYWEwIiwicm9sZSI6IiIsInRva2VuX3R5cGUiOiIiLCJleHBpcmVzX2F0IjoiMDAwMS0wMS0wMVQwMDowMDowMFoiLCJleHAiOjE3Mzg1Mjg4OTZ9._wKlwEUVwtuJQH4O4DQMKwb1FToiJy05IngEp0hiy1k"
+	//var userSession entity.UserSession
+	//_ = state.GetByKeyVal[entity.UserSession, string](state.GetConnection(), "access_token", accessToken, &userSession)
 	connectionString, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		fmt.Println(err)
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}
-	_ = chat.AssignConnection(chatRoom, connectionString, userSession.UserID)
-	defer func() error {
-		_ = chat.CloseConnection(chatRoom, userSession.UserID)
+
+	ids := lib.GetConfig().WP.ScaleUp(1)
+
+	defer func() {
+		lib.GetConfig().WP.ScaleDown(ids[0])
 		_ = connectionString.Close()
-		return nil
 	}()
 
+	connectionString.PingHandler()
 	for {
 		_, bytes, err := connectionString.ReadMessage()
 		if err != nil {
 			break
 		}
-
-	}
-}
-
-func wsConnectionController(connectionString *websocket.Conn) error {
-	for {
-		_, bytes, err := connectionString.ReadMessage()
-		if err != nil {
-			break
-		}
-
+		lib.GetConfig().WP.EnqueueTask(lib.Task[map[string]any]{Data: map[string]any{"message": string(bytes)}})
 	}
 }
