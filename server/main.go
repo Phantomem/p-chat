@@ -123,3 +123,230 @@ func wsUpgradeHandler(c *gin.Context) {
 		lib.GetConfig().WP.EnqueueTask(lib.Task[map[string]any]{Data: map[string]any{"message": string(bytes)}})
 	}
 }
+
+//package main
+//
+//import (
+//"chat-app/config"
+//"context"
+//"log"
+//"net/http"
+//"os"
+//"os/signal"
+//"syscall"
+//"time"
+//
+//"github.com/go-redis/redis/v8"
+//"github.com/gorilla/websocket"
+//)
+//
+//var (
+//	cfg        *config.Config
+//	redisClient *redis.Client
+//	upgrader   = websocket.Upgrader{
+//		CheckOrigin: func(r *http.Request) bool { return true },
+//	}
+//)
+//
+//func main() {
+//	// Load configuration
+//	cfg = config.Load()
+//
+//	// Initialize Redis
+//	redisClient = redis.NewClient(&redis.Options{
+//		Addr: cfg.RedisAddr,
+//	})
+//
+//	// WebSocket handler
+//	http.HandleFunc("/ws", handleWebSocket)
+//
+//	// Start server
+//	server := &http.Server{
+//		Addr:         ":" + strconv.Itoa(cfg.ServerPort),
+//		ReadTimeout:  10 * time.Second,
+//		WriteTimeout: 10 * time.Second,
+//	}
+//
+//	// Graceful shutdown
+//	go func() {
+//		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+//			log.Fatalf("Server error: %v", err)
+//		}
+//	}()
+//
+//	// Wait for interrupt signal
+//	quit := make(chan os.Signal, 1)
+//	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+//	<-quit
+//
+//	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+//	defer cancel()
+//
+//	if err := server.Shutdown(ctx); err != nil {
+//		log.Fatal("Server forced to shutdown:", err)
+//	}
+//
+//	if err := redisClient.Close(); err != nil {
+//		log.Fatal("Redis connection closure error:", err)
+//	}
+//}
+//
+//func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+//	conn, err := upgrader.Upgrade(w, r, nil)
+//	if err != nil {
+//		log.Printf("WebSocket upgrade failed: %v", err)
+//		return
+//	}
+//	defer conn.Close()
+//
+//	// Authenticate user (implement your own logic)
+//	userID := authenticateUser(r)
+//	if userID == "" {
+//		conn.WriteMessage(websocket.CloseMessage, []byte("Unauthorized"))
+//		return
+//	}
+//
+//	// Create dedicated PubSub for this connection
+//	pubsub := redisClient.Subscribe(r.Context())
+//	defer pubsub.Close()
+//
+//	// Subscribe to user's personal channel
+//	err = pubsub.Subscribe(r.Context(), getUserChannel(userID))
+//	if err != nil {
+//		log.Printf("Subscription failed: %v", err)
+//		return
+//	}
+//
+//	go readFromClient(conn, pubsub, userID)
+//	writeToClient(conn, pubsub.Channel())
+//}
+//
+//func getUserChannel(userID string) string {
+//	return fmt.Sprintf("user:%s", userID)
+//}
+//
+//func readFromClient(conn *websocket.Conn, pubsub *redis.PubSub, userID string) {
+//	defer pubsub.Close()
+//
+//	for {
+//		_, msgBytes, err := conn.ReadMessage()
+//		if err != nil {
+//			break
+//		}
+//
+//		var msg struct {
+//			Type    string `json:"type"`
+//			To      string `json:"to"`
+//			Content string `json:"content"`
+//		}
+//
+//		if err := json.Unmarshal(msgBytes, &msg); err != nil {
+//			log.Printf("Invalid message format: %v", err)
+//			continue
+//		}
+//
+//		channel := getChannel(msg.Type, userID, msg.To)
+//
+//		// Add permission checks here (e.g., is user allowed to message this target?)
+//		if !validateMessagePermission(userID, msg.Type, msg.To) {
+//			log.Printf("Unauthorized message attempt from %s", userID)
+//			continue
+//		}
+//
+//		// Publish with sender information
+//		envelope := map[string]interface{}{
+//			"from":    userID,
+//			"to":      msg.To,
+//			"content":  msg.Content,
+//			"channel":  channel,
+//		}
+//
+//		envelopeBytes, _ := json.Marshal(envelope)
+//
+//		if err := redisClient.Publish(r.Context(), channel, envelopeBytes).Err(); err != nil {
+//			log.Printf("Redis publish error: %v", err)
+//		}
+//	}
+//}
+//
+//func writeToClient(conn *websocket.Conn, ch <-chan *redis.Message) {
+//	for redisMsg := range ch {
+//		var envelope map[string]interface{}
+//		if err := json.Unmarshal([]byte(redisMsg.Payload), &envelope); err != nil {
+//			log.Printf("Invalid message format: %v", err)
+//			continue
+//		}
+//
+//		msg := map[string]interface{}{
+//			"type":    "message",
+//			"from":    envelope["from"],
+//			"content": envelope["content"],
+//			"channel": envelope["channel"],
+//		}
+//
+//		msgBytes, _ := json.Marshal(msg)
+//
+//		if err := conn.WriteMessage(websocket.TextMessage, msgBytes); err != nil {
+//			break
+//		}
+//	}
+//}
+//func handleSubscribe(conn *websocket.Conn, pubsub *redis.PubSub, userID string, channel string) {
+//	// Validate group membership before subscribing
+//	if isValidGroupMember(userID, channel) {
+//		err := pubsub.Subscribe(context.Background(), channel)
+//		if err != nil {
+//			log.Printf("Subscription failed: %v", err)
+//		}
+//	}
+//}
+//
+//func handleUnsubscribe(pubsub *redis.PubSub, channel string) {
+//	err := pubsub.Unsubscribe(context.Background(), channel)
+//	if err != nil {
+//		log.Printf("Unsubscription failed: %v", err)
+//	}
+//}
+//func getChannel(msgType, from, to string) string {
+//	// For private: always sort IDs to prevent channel duplication
+//	ids := []string{from, to}
+//	sort.Strings(ids)
+//
+//	switch msgType {
+//	case "private":
+//		return fmt.Sprintf("private:%s:%s", ids[0], ids[1])
+//	case "group":
+//		return fmt.Sprintf("group:%s", to)
+//	default:
+//		return "global"
+//	}
+//}
+//func validateMessagePermission(senderID, msgType, target string) bool {
+//	switch msgType {
+//	case "private":
+//		// Check if users have a relationship
+//		return checkFriendship(senderID, target)
+//	case "group":
+//		// Check if user is member of group
+//		return checkGroupMembership(senderID, target)
+//	default:
+//		return false
+//	}
+//}
+//
+//// Implement these based on your user/group storage
+//func checkFriendship(user1, user2 string) bool {
+//	// Query your database or relationship store
+//	return true
+//}
+//
+//func checkGroupMembership(userID, groupID string) bool {
+//	// Query your group membership store
+//	return true
+//}
+//
+//# Monitor all messages
+//redis-cli psubscribe '*'
+//
+//# Send test message from console
+//redis-cli publish private:user1:user2 '{"from":"user1","to":"user2","content":"Test"}'
